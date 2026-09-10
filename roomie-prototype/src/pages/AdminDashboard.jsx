@@ -1,6 +1,30 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getAllBookings } from '../data/bookings'
 import { getAllReviews } from '../data/reviews'
+
+function StatCard({ title, value, description, icon, iconStyle }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-500">{title}</p>
+          <h3 className="text-3xl font-bold text-gray-900 mt-2">
+            {value}
+          </h3>
+          <p className="text-xs text-gray-500 mt-2">
+            {description}
+          </p>
+        </div>
+
+        <div
+          className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconStyle}`}
+        >
+          {icon}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function AdminDashboard({ onBack }) {
   const [stats, setStats] = useState({
@@ -14,37 +38,59 @@ function AdminDashboard({ onBack }) {
     totalReviews: 0,
     averageRating: 0
   })
+
   const [users, setUsers] = useState([])
   const [bookings, setBookings] = useState([])
-  const [activeTab, setActiveTab] = useState('overview') // overview, users, bookings
+  const [activeTab, setActiveTab] = useState('overview')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
     loadDashboardData()
   }, [])
 
   const loadDashboardData = () => {
-    // Load users
-    const usersJson = localStorage.getItem('registeredUsers')
-    const allUsers = usersJson ? JSON.parse(usersJson) : []
-    
-    // Load bookings
-    const allBookings = getAllBookings()
-    
-    // Load reviews
-    const allReviews = getAllReviews()
-    
-    // Calculate stats
-    const hosts = allUsers.filter(u => u.role === 'host')
-    const renters = allUsers.filter(u => u.role === 'renter')
-    const pending = allBookings.filter(b => b.status === 'pending')
-    const approved = allBookings.filter(b => b.status === 'approved' || b.status === 'completed')
-    const totalRevenue = allBookings
-      .filter(b => b.status === 'approved' || b.status === 'completed')
-      .reduce((sum, b) => sum + b.totalPrice, 0)
-    
-    const avgRating = allReviews.length > 0
-      ? (allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length).toFixed(1)
-      : 0
+    let allUsers = []
+
+    try {
+      const usersJson = localStorage.getItem('registeredUsers')
+      allUsers = usersJson ? JSON.parse(usersJson) : []
+    } catch {
+      allUsers = []
+    }
+
+    const allBookings = getAllBookings() || []
+    const allReviews = getAllReviews() || []
+
+    const hosts = allUsers.filter(user => user.role === 'host')
+    const renters = allUsers.filter(user => user.role === 'renter')
+
+    const pending = allBookings.filter(
+      booking => booking.status === 'pending'
+    )
+
+    const approved = allBookings.filter(
+      booking =>
+        booking.status === 'approved' ||
+        booking.status === 'completed'
+    )
+
+    const totalRevenue = approved.reduce(
+      (total, booking) =>
+        total + (Number(booking.totalPrice) || 0),
+      0
+    )
+
+    const averageRating =
+      allReviews.length > 0
+        ? (
+            allReviews.reduce(
+              (total, review) =>
+                total + (Number(review.rating) || 0),
+              0
+            ) / allReviews.length
+          ).toFixed(1)
+        : 0
 
     setStats({
       totalUsers: allUsers.length,
@@ -53,294 +99,885 @@ function AdminDashboard({ onBack }) {
       totalBookings: allBookings.length,
       pendingBookings: pending.length,
       approvedBookings: approved.length,
-      totalRevenue: totalRevenue,
+      totalRevenue,
       totalReviews: allReviews.length,
-      averageRating: avgRating
+      averageRating
     })
 
     setUsers(allUsers)
     setBookings(allBookings)
   }
 
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800'
-      case 'approved': return 'bg-green-100 text-green-800'
-      case 'declined': return 'bg-red-100 text-red-800'
-      case 'completed': return 'bg-gray-100 text-gray-800'
-      default: return 'bg-gray-100 text-gray-800'
+  const formatCurrency = amount => {
+    return new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency: 'PHP'
+    }).format(Number(amount) || 0)
+  }
+
+  const formatDate = date => {
+    if (!date) return 'N/A'
+
+    const parsedDate = new Date(date)
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return 'N/A'
+    }
+
+    return parsedDate.toLocaleDateString('en-PH', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    })
+  }
+
+  const getStatusColor = status => {
+    switch (status) {
+      case 'pending':
+        return 'bg-amber-50 text-amber-700 border-amber-200'
+
+      case 'approved':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+
+      case 'declined':
+        return 'bg-red-50 text-red-700 border-red-200'
+
+      case 'completed':
+        return 'bg-blue-50 text-blue-700 border-blue-200'
+
+      default:
+        return 'bg-gray-50 text-gray-700 border-gray-200'
     }
   }
 
-  const getRoleBadgeColor = (role) => {
-    switch(role) {
-      case 'admin': return 'bg-purple-100 text-purple-800'
-      case 'host': return 'bg-blue-100 text-blue-800'
-      case 'renter': return 'bg-green-100 text-green-800'
-      default: return 'bg-gray-100 text-gray-800'
+  const getRoleBadgeColor = role => {
+    switch (role) {
+      case 'admin':
+        return 'bg-violet-50 text-violet-700 border-violet-200'
+
+      case 'host':
+        return 'bg-blue-50 text-blue-700 border-blue-200'
+
+      case 'renter':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+
+      default:
+        return 'bg-gray-50 text-gray-700 border-gray-200'
     }
   }
+
+  const filteredUsers = useMemo(() => {
+    const keyword = searchTerm.toLowerCase()
+
+    return users.filter(user => {
+      return (
+        user.name?.toLowerCase().includes(keyword) ||
+        user.email?.toLowerCase().includes(keyword) ||
+        user.role?.toLowerCase().includes(keyword)
+      )
+    })
+  }, [users, searchTerm])
+
+  const filteredBookings = useMemo(() => {
+    const keyword = searchTerm.toLowerCase()
+
+    return bookings.filter(booking => {
+      const matchesSearch =
+        booking.roomName?.toLowerCase().includes(keyword) ||
+        booking.renterName?.toLowerCase().includes(keyword) ||
+        String(booking.id).toLowerCase().includes(keyword)
+
+      const matchesStatus =
+        statusFilter === 'all' ||
+        booking.status === statusFilter
+
+      return matchesSearch && matchesStatus
+    })
+  }, [bookings, searchTerm, statusFilter])
+
+  const exportBookings = () => {
+    if (bookings.length === 0) return
+
+    const headers = [
+      'Booking ID',
+      'Room',
+      'Guest',
+      'Check-in',
+      'Check-out',
+      'Status',
+      'Total'
+    ]
+
+    const rows = bookings.map(booking => [
+      booking.id,
+      booking.roomName,
+      booking.renterName,
+      formatDate(booking.checkIn),
+      formatDate(booking.checkOut),
+      booking.status,
+      booking.totalPrice
+    ])
+
+    const csv = [headers, ...rows]
+      .map(row =>
+        row
+          .map(value => `"${String(value ?? '').replace(/"/g, '""')}"`)
+          .join(',')
+      )
+      .join('\n')
+
+    const blob = new Blob([csv], {
+      type: 'text/csv;charset=utf-8;'
+    })
+
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+
+    link.href = url
+    link.download = 'booking-report.csv'
+    link.click()
+
+    URL.revokeObjectURL(url)
+  }
+
+  const currentDate = new Date().toLocaleDateString('en-PH', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  })
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="container mx-auto px-4 max-w-7xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={onBack}
-              className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+
+            <div className="flex items-center gap-4">
+              <button
+                onClick={onBack}
+                className="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition"
+                aria-label="Go back"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
+              </button>
+
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+                    Admin Dashboard
+                  </h1>
+
+                  <span className="hidden sm:inline-flex text-xs font-semibold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+                    Administrator
+                  </span>
+                </div>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  Manage users, bookings, reviews and platform activity.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="hidden lg:block text-right mr-2">
+                <p className="text-xs text-gray-400">
+                  Today
+                </p>
+
+                <p className="text-sm font-medium text-gray-700">
+                  {currentDate}
+                </p>
+              </div>
+
+              <button
+                onClick={loadDashboardData}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-800 transition shadow-sm"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8 8 0 004.582 9M4 9h5m11 11v-5h-.581m0 0a8 8 0 01-15.357-2M20 15h-5"
+                  />
+                </svg>
+
+                Refresh Data
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+
+          <StatCard
+            title="Total Users"
+            value={stats.totalUsers}
+            description={`${stats.totalHosts} hosts · ${stats.totalRenters} renters`}
+            iconStyle="bg-violet-50 text-violet-600"
+            icon={
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M17 20h5v-2a4 4 0 00-4-4h-1m-4 6H3v-2a4 4 0 014-4h2a4 4 0 014 4v2zm-5-8a4 4 0 100-8 4 4 0 000 8zm9-2a3 3 0 100-6 3 3 0 000 6z"
+                />
               </svg>
-            </button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-                <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-                Admin Dashboard
-              </h1>
-              <p className="text-gray-600 mt-1">System overview and management</p>
-            </div>
-          </div>
-          
-          <button
-            onClick={loadDashboardData}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </button>
+            }
+          />
+
+          <StatCard
+            title="Total Bookings"
+            value={stats.totalBookings}
+            description={`${stats.pendingBookings} pending · ${stats.approvedBookings} approved`}
+            iconStyle="bg-blue-50 text-blue-600"
+            icon={
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M8 7V3m8 4V3M5 11h14M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+                />
+              </svg>
+            }
+          />
+
+          <StatCard
+            title="Total Revenue"
+            value={formatCurrency(stats.totalRevenue)}
+            description="Revenue from confirmed bookings"
+            iconStyle="bg-emerald-50 text-emerald-600"
+            icon={
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M12 6v12m3-9.5C14.2 7.6 13.2 7 12 7c-1.7 0-3 1-3 2.2 0 1.4 1.3 2 3 2.3s3 .9 3 2.3C15 15 13.7 16 12 16c-1.2 0-2.3-.5-3-1.5"
+                />
+              </svg>
+            }
+          />
+
+          <StatCard
+            title="Guest Reviews"
+            value={stats.totalReviews}
+            description={`Average rating: ${stats.averageRating} / 5`}
+            iconStyle="bg-amber-50 text-amber-600"
+            icon={
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z"
+                />
+              </svg>
+            }
+          />
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {/* Total Users */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              </div>
-            </div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.totalUsers}</h3>
-            <p className="text-sm text-gray-600">Total Users</p>
-            <p className="text-xs text-gray-500 mt-2">{stats.totalHosts} hosts · {stats.totalRenters} renters</p>
-          </div>
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm mb-6 p-1.5">
+          <div className="flex flex-col sm:flex-row gap-1">
 
-          {/* Total Bookings */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
-            </div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.totalBookings}</h3>
-            <p className="text-sm text-gray-600">Total Bookings</p>
-            <p className="text-xs text-gray-500 mt-2">{stats.pendingBookings} pending · {stats.approvedBookings} approved</p>
-          </div>
-
-          {/* Total Revenue */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            </div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-1">${stats.totalRevenue.toFixed(2)}</h3>
-            <p className="text-sm text-gray-600">Total Revenue</p>
-            <p className="text-xs text-gray-500 mt-2">From approved bookings</p>
-          </div>
-
-          {/* Reviews */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                </svg>
-              </div>
-            </div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.totalReviews}</h3>
-            <p className="text-sm text-gray-600">Total Reviews</p>
-            <p className="text-xs text-gray-500 mt-2">Avg rating: {stats.averageRating}★</p>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="bg-white rounded-lg shadow-sm mb-6">
-          <div className="flex border-b">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className={`flex-1 py-4 px-6 font-medium transition-colors ${
-                activeTab === 'overview'
-                  ? 'border-b-2 border-purple-600 text-purple-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Overview
-            </button>
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`flex-1 py-4 px-6 font-medium transition-colors ${
-                activeTab === 'users'
-                  ? 'border-b-2 border-purple-600 text-purple-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Users ({stats.totalUsers})
-            </button>
-            <button
-              onClick={() => setActiveTab('bookings')}
-              className={`flex-1 py-4 px-6 font-medium transition-colors ${
-                activeTab === 'bookings'
-                  ? 'border-b-2 border-purple-600 text-purple-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              All Bookings ({stats.totalBookings})
-            </button>
+            {[
+              ['overview', 'Overview'],
+              ['users', `Users (${stats.totalUsers})`],
+              ['bookings', `Bookings (${stats.totalBookings})`]
+            ].map(([tab, label]) => (
+              <button
+                key={tab}
+                onClick={() => {
+                  setActiveTab(tab)
+                  setSearchTerm('')
+                }}
+                className={`flex-1 px-5 py-3 rounded-xl text-sm font-semibold transition-all ${
+                  activeTab === tab
+                    ? 'bg-gray-900 text-white shadow-sm'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Tab Content */}
         {activeTab === 'overview' && (
-          <div className="bg-white rounded-lg shadow-sm p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">System Overview</h2>
-            
-            <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <p className="text-sm text-gray-700">{stats.pendingBookings} bookings awaiting approval</p>
+          <div className="grid lg:grid-cols-3 gap-6">
+
+            <div className="lg:col-span-2 bg-white border border-gray-200 rounded-2xl shadow-sm">
+
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-900">
+                  Platform Overview
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  Current activity across the booking platform.
+                </p>
+              </div>
+
+              <div className="p-6">
+                <div className="grid sm:grid-cols-3 gap-4">
+
+                  <div className="border border-gray-200 rounded-xl p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                      <p className="text-sm font-medium text-gray-500">
+                        Pending
+                      </p>
+                    </div>
+
+                    <p className="text-2xl font-bold text-gray-900">
+                      {stats.pendingBookings}
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      Awaiting booking approval
+                    </p>
                   </div>
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <p className="text-sm text-gray-700">{stats.totalUsers} registered users</p>
+
+                  <div className="border border-gray-200 rounded-xl p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                      <p className="text-sm font-medium text-gray-500">
+                        Registered
+                      </p>
+                    </div>
+
+                    <p className="text-2xl font-bold text-gray-900">
+                      {stats.totalUsers}
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      Users on the platform
+                    </p>
                   </div>
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                    <p className="text-sm text-gray-700">{stats.totalReviews} reviews submitted</p>
+
+                  <div className="border border-gray-200 rounded-xl p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                      <p className="text-sm font-medium text-gray-500">
+                        Reviews
+                      </p>
+                    </div>
+
+                    <p className="text-2xl font-bold text-gray-900">
+                      {stats.totalReviews}
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      Guest feedback received
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-7">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">
+                    Management Summary
+                  </h3>
+
+                  <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl">
+
+                    <div className="flex items-center justify-between p-4">
+                      <span className="text-sm text-gray-600">
+                        Host accounts
+                      </span>
+
+                      <span className="text-sm font-semibold text-gray-900">
+                        {stats.totalHosts}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4">
+                      <span className="text-sm text-gray-600">
+                        Renter accounts
+                      </span>
+
+                      <span className="text-sm font-semibold text-gray-900">
+                        {stats.totalRenters}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4">
+                      <span className="text-sm text-gray-600">
+                        Confirmed bookings
+                      </span>
+
+                      <span className="text-sm font-semibold text-gray-900">
+                        {stats.approvedBookings}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4">
+                      <span className="text-sm text-gray-600">
+                        Average guest rating
+                      </span>
+
+                      <span className="text-sm font-semibold text-gray-900">
+                        {stats.averageRating} / 5
+                      </span>
+                    </div>
+
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-                <div className="space-y-3">
-                  <button 
-                    onClick={() => setActiveTab('users')}
-                    className="w-full p-3 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-left font-medium transition-colors"
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-900">
+                  Quick Actions
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  Common administration tasks.
+                </p>
+              </div>
+
+              <div className="p-5 space-y-3">
+
+                <button
+                  onClick={() => setActiveTab('users')}
+                  className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-xl text-left hover:border-gray-300 hover:bg-gray-50 transition"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      Manage Users
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      View registered accounts
+                    </p>
+                  </div>
+
+                  <span className="text-gray-400">→</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('bookings')}
+                  className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-xl text-left hover:border-gray-300 hover:bg-gray-50 transition"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      View Bookings
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      Review booking records
+                    </p>
+                  </div>
+
+                  <span className="text-gray-400">→</span>
+                </button>
+
+                <button
+                  onClick={exportBookings}
+                  className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-xl text-left hover:border-gray-300 hover:bg-gray-50 transition"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      Export Report
+                    </p>
+
+                    <p className="text-xs text-gray-500 mt-1">
+                      Download booking data as CSV
+                    </p>
+                  </div>
+
+                  <svg
+                    className="w-5 h-5 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    Manage Users →
-                  </button>
-                  <button 
-                    onClick={() => setActiveTab('bookings')}
-                    className="w-full p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-left font-medium transition-colors"
-                  >
-                    View All Bookings →
-                  </button>
-                  <button className="w-full p-3 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-lg text-left font-medium transition-colors">
-                    Export Reports →
-                  </button>
-                </div>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14"
+                    />
+                  </svg>
+                </button>
+
               </div>
             </div>
           </div>
         )}
 
         {activeTab === 'users' && (
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+
+            <div className="px-6 py-5 border-b border-gray-100 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  User Management
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  View all registered users and account roles.
+                </p>
+              </div>
+
+              <div className="relative w-full md:w-80">
+                <svg
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-4.35-4.35m1.35-5.65a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={event => setSearchTerm(event.target.value)}
+                  placeholder="Search users..."
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+                />
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b">
+                <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
+                    <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      User
+                    </th>
+
+                    <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Email
+                    </th>
+
+                    <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Role
+                    </th>
+
+                    <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Date Joined
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {users.map(user => (
-                    <tr key={user.id} className="hover:bg-gray-50">
+
+                <tbody className="divide-y divide-gray-100">
+
+                  {filteredUsers.map(user => (
+                    <tr
+                      key={user.id}
+                      className="hover:bg-gray-50/70 transition"
+                    >
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold">
-                            {user.name.charAt(0)}
+                        <div className="flex items-center gap-3">
+
+                          <div className="w-10 h-10 rounded-full bg-gray-900 flex items-center justify-center text-sm text-white font-semibold">
+                            {user.name?.charAt(0)?.toUpperCase() || 'U'}
                           </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">{user.name}</div>
+
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {user.name || 'Unknown User'}
+                            </p>
+
+                            <p className="text-xs text-gray-400">
+                              ID: {user.id || 'N/A'}
+                            </p>
                           </div>
+
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{user.email}</div>
+
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {user.email || 'N/A'}
                       </td>
+
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getRoleBadgeColor(user.role)}`}>
-                          {user.role}
+                        <span
+                          className={`inline-flex px-3 py-1 rounded-full border text-xs font-semibold capitalize ${getRoleBadgeColor(
+                            user.role
+                          )}`}
+                        >
+                          {user.role || 'user'}
                         </span>
                       </td>
+
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(user.createdAt).toLocaleDateString()}
+                        {formatDate(user.createdAt)}
                       </td>
                     </tr>
                   ))}
+
                 </tbody>
               </table>
             </div>
+
+            {filteredUsers.length === 0 && (
+              <div className="py-16 text-center">
+                <p className="text-sm font-medium text-gray-700">
+                  No users found
+                </p>
+
+                <p className="text-xs text-gray-400 mt-1">
+                  Try using a different search term.
+                </p>
+              </div>
+            )}
+
           </div>
         )}
 
         {activeTab === 'bookings' && (
-          <div className="space-y-4">
-            {bookings.map(booking => (
-              <div key={booking.id} className="bg-white rounded-lg shadow-sm p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{booking.roomName}</h3>
-                    <p className="text-sm text-gray-600">Booking #{booking.id}</p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium capitalize ${getStatusColor(booking.status)}`}>
-                    {booking.status}
-                  </span>
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+
+            <div className="px-6 py-5 border-b border-gray-100">
+
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">
+                    Booking Management
+                  </h2>
+
+                  <p className="text-sm text-gray-500 mt-1">
+                    Monitor reservations and booking status.
+                  </p>
                 </div>
-                
-                <div className="grid md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-600">Guest</p>
-                    <p className="font-medium">{booking.renterName}</p>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+
+                  <div className="relative">
+                    <svg
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M21 21l-4.35-4.35m1.35-5.65a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={event =>
+                        setSearchTerm(event.target.value)
+                      }
+                      placeholder="Search bookings..."
+                      className="w-full sm:w-64 pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+                    />
                   </div>
-                  <div>
-                    <p className="text-gray-600">Check-in</p>
-                    <p className="font-medium">{new Date(booking.checkIn).toLocaleDateString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Check-out</p>
-                    <p className="font-medium">{new Date(booking.checkOut).toLocaleDateString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Total</p>
-                    <p className="font-semibold text-green-600">${booking.totalPrice.toFixed(2)}</p>
-                  </div>
+
+                  <select
+                    value={statusFilter}
+                    onChange={event =>
+                      setStatusFilter(event.target.value)
+                    }
+                    className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+                  >
+                    <option value="all">
+                      All Status
+                    </option>
+
+                    <option value="pending">
+                      Pending
+                    </option>
+
+                    <option value="approved">
+                      Approved
+                    </option>
+
+                    <option value="completed">
+                      Completed
+                    </option>
+
+                    <option value="declined">
+                      Declined
+                    </option>
+                  </select>
+
                 </div>
               </div>
-            ))}
+            </div>
+
+            <div className="divide-y divide-gray-100">
+
+              {filteredBookings.map(booking => (
+                <div
+                  key={booking.id}
+                  className="p-6 hover:bg-gray-50/60 transition"
+                >
+
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+
+                    <div className="flex-1">
+
+                      <div className="flex flex-wrap items-center gap-3 mb-5">
+
+                        <h3 className="text-lg font-bold text-gray-900">
+                          {booking.roomName || 'Room Booking'}
+                        </h3>
+
+                        <span
+                          className={`inline-flex px-3 py-1 rounded-full border text-xs font-semibold capitalize ${getStatusColor(
+                            booking.status
+                          )}`}
+                        >
+                          {booking.status || 'unknown'}
+                        </span>
+
+                      </div>
+
+                      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5">
+
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                            Guest
+                          </p>
+
+                          <p className="text-sm font-semibold text-gray-800 mt-1">
+                            {booking.renterName || 'N/A'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                            Check-in
+                          </p>
+
+                          <p className="text-sm font-semibold text-gray-800 mt-1">
+                            {formatDate(booking.checkIn)}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                            Check-out
+                          </p>
+
+                          <p className="text-sm font-semibold text-gray-800 mt-1">
+                            {formatDate(booking.checkOut)}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                            Booking Total
+                          </p>
+
+                          <p className="text-sm font-bold text-gray-900 mt-1">
+                            {formatCurrency(booking.totalPrice)}
+                          </p>
+                        </div>
+
+                      </div>
+                    </div>
+
+                    <div className="lg:text-right">
+                      <p className="text-xs text-gray-400">
+                        Booking ID
+                      </p>
+
+                      <p className="text-sm font-mono font-medium text-gray-600 mt-1">
+                        #{booking.id}
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+              ))}
+
+            </div>
+
+            {filteredBookings.length === 0 && (
+              <div className="py-16 text-center">
+                <div className="w-12 h-12 rounded-full bg-gray-100 mx-auto flex items-center justify-center mb-3">
+
+                  <svg
+                    className="w-6 h-6 text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.8}
+                      d="M8 7V3m8 4V3M5 11h14M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+                    />
+                  </svg>
+
+                </div>
+
+                <p className="text-sm font-semibold text-gray-700">
+                  No bookings found
+                </p>
+
+                <p className="text-xs text-gray-400 mt-1">
+                  No booking records match your current filters.
+                </p>
+              </div>
+            )}
+
           </div>
         )}
-      </div>
+
+      </main>
     </div>
   )
 }
